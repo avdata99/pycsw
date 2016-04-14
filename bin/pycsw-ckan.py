@@ -196,7 +196,7 @@ if COMMAND is None:
     print '-c <command> is a required argument'
     sys.exit(4)
 
-if COMMAND not in ['setup_db', 'load']:
+if COMMAND not in ['setup_db', 'load', 'set_keywords']:
     print 'ERROR: invalid command name: %s' % COMMAND
     sys.exit(5)
 
@@ -314,5 +314,24 @@ elif COMMAND == 'load':
         except Exception, err:
             repo.session.rollback()
             raise RuntimeError, 'ERROR: %s' % str(err)
+elif COMMAND == 'set_keywords':
+    """set pycsw service metadata keywords from top limit CKAN tags"""
+    limit = 20
+
+    print 'Fetching tags from %s' % CKAN_URL
+    url = CKAN_URL + '/api/tag_counts'
+    response = requests.get(url)
+    tags = response.json()
+
+    print 'Deriving top %d tags' % limit
+    # uniquify and sort by top limit
+    tags_unique = [list(x) for x in set(tuple(x) for x in tags)]
+    tags_sorted = sorted(tags_unique, key=lambda x: x[1], reverse=1)[0:limit]
+    keywords = ','.join('%s' % tn[0] for tn in tags_sorted)
+
+    print 'Setting tags in pycsw configuration file %s' % CFG
+    SCP.set('metadata:main', 'identification_keywords', keywords)
+    with open(CFG, 'wb') as configfile:
+        SCP.write(configfile)
 
 print 'Done'
