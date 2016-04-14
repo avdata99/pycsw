@@ -80,7 +80,8 @@ setup(
     # TODO: replace scripts with entry_points (needs a refactoring of pycsw-admin first)
     scripts=[
         os.path.join('bin', 'pycsw-admin.py'),
-        os.path.join('bin', 'pycsw-ckan.py')
+        os.path.join('bin', 'pycsw-ckan.py'),
+        os.path.join('bin', 'pycsw-db-admin.py'),
     ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
