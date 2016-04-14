@@ -5,3 +5,5 @@ pyproj
 Shapely
 six
 xmltodict
+sqlalchemy
+jinja2
