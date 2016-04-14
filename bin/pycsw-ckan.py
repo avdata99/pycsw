@@ -319,15 +319,15 @@ elif COMMAND == 'set_keywords':
     limit = 20
 
     print 'Fetching tags from %s' % CKAN_URL
-    url = CKAN_URL + '/api/tag_counts'
+    url = CKAN_URL + '/api/action/package_search?facet.field=["tags"]&rows=0&facet.limit=%s' % limit
     response = requests.get(url)
-    tags = response.json()
+    tags = response.json()['result']['facets']['tags']
 
     print 'Deriving top %d tags' % limit
     # uniquify and sort by top limit
-    tags_unique = [list(x) for x in set(tuple(x) for x in tags)]
-    tags_sorted = sorted(tags_unique, key=lambda x: x[1], reverse=1)[0:limit]
-    keywords = ','.join('%s' % tn[0] for tn in tags_sorted)
+    tags_sorted = sorted(tags, key=tags.__getitem__, reverse=True)
+    tags_trimmed = [x for x in tags_sorted if x != '']
+    keywords = ','.join(tags_trimmed)
 
     print 'Setting tags in pycsw configuration file %s' % CFG
     SCP.set('metadata:main', 'identification_keywords', keywords)
