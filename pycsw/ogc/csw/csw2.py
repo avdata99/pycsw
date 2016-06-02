@@ -130,11 +130,16 @@ class Csw2(object):
             keywords = etree.SubElement(serviceidentification,
             util.nspath_eval('ows:Keywords', self.parent.context.namespaces))
 
-            for k in \
-            metadata_main.get('identification_keywords').split(','):
+            # data.gov keeps custom keywords from CKAN datasets in system_info
+            from sqlalchemy import  create_engine
+            DATABASE = self.config.get('repository', 'database')
+            engine = create_engine(DATABASE)
+            result = engine.execute("SELECT value FROM system_info WHERE key='keywords' LIMIT 1")
+            identification_keywords = result.fetchone()[0]
+            for k in identification_keywords.split(','):
                 etree.SubElement(
                 keywords, util.nspath_eval('ows:Keyword',
-                self.parent.context.namespaces)).text = k
+                self.context.namespaces)).text = k
 
             etree.SubElement(keywords,
             util.nspath_eval('ows:Type', self.parent.context.namespaces),
