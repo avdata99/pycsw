@@ -672,8 +672,12 @@ class Csw(object):
             keywords = etree.SubElement(serviceidentification,
             util.nspath_eval('ows:Keywords', self.context.namespaces))
 
-            for k in \
-            metadata_main.get('identification_keywords').split(','):
+            from sqlalchemy import  create_engine
+            DATABASE = self.config.get('repository', 'database')
+            engine = create_engine(DATABASE)
+            result = engine.execute("SELECT value FROM system_info WHERE key='keywords' LIMIT 1")
+            identification_keywords = result.fetchone()[0]
+            for k in identification_keywords.split(','):
                 etree.SubElement(
                 keywords, util.nspath_eval('ows:Keyword',
                 self.context.namespaces)).text = k

@@ -201,7 +201,9 @@ if COMMAND not in ['setup_db', 'load', 'set_keywords']:
     sys.exit(5)
 
 if COMMAND == 'setup_db':
-    from sqlalchemy import Boolean, Column, Text
+    from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
+            create_engine
+
     ckan_columns = [
         Column('ckan_id', Text, index=True),
         Column('ckan_modified', Text),
@@ -216,6 +218,27 @@ if COMMAND == 'setup_db':
         print err
         print 'ERROR: DB creation error.  Database tables already exist'
         print 'Delete tables or database to reinitialize'
+
+    # create system_info table
+    engine = create_engine(DATABASE)
+    schema, table = util.sniff_table('system_info')
+    mdata = MetaData(engine, schema=schema)
+
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.info('Creating system info table')
+    system_info = Table(
+        'system_info', mdata,
+        Column('key', Text, index=True),
+        Column('value', Text, index=True),
+    )
+
+    try:
+        system_info.create()
+        engine.execute("INSERT INTO system_info VALUES('keywords', '');")
+    except Exception as err:
+        print err
+        print 'ERROR: DB creation error.  Database tables already exist'
+
 elif COMMAND == 'load':
     repo = repository.Repository(DATABASE, CONTEXT, table=TABLE)
     query = '/api/search/dataset?qjson={"fl":"id,metadata_modified,extras_harvest_object_id,extras_source_datajson_identifier,extras_metadata_source,extras_collection_package_id", "q":"harvest_object_id:[\\"\\" TO *]", "limit":1000, "start":%s}'
@@ -329,9 +352,9 @@ elif COMMAND == 'set_keywords':
     tags_trimmed = [x for x in tags_sorted if x != '']
     keywords = ','.join(tags_trimmed)
 
-    print 'Setting tags in pycsw configuration file %s' % CFG
-    SCP.set('metadata:main', 'identification_keywords', keywords)
-    with open(CFG, 'wb') as configfile:
-        SCP.write(configfile)
+    from sqlalchemy import create_engine
+    engine = create_engine(DATABASE)
+    engine.execute("UPDATE system_info SET value='%s' WHERE key='keywords'" % keywords)
+    print 'Tags saved to system_info table.'
 
 print 'Done'
