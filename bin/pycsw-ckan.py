@@ -114,7 +114,7 @@ def get_record(context, repo, ckan_url, ckan_id, ckan_info):
 
     if not response.ok:
         print 'Could not get Harvest object for id %s (%d: %s)' % \
-                  ckan_id, response.status_code, response.reason
+                  (ckan_id, response.status_code, response.reason)
         return
 
     if ckan_info['source'] in ['arcgis', 'datajson']:  # convert json to iso
