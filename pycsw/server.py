@@ -40,6 +40,7 @@ from lxml import etree
 from pycsw.plugins.profiles import profile as pprofile
 import pycsw.plugins.outputschemas
 from pycsw import config, fes, log, metadata, util, sru, oaipmh, opensearch
+from pycsw.cql import cql2fes1
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ class Csw(object):
 
             try:
                 self.repository = \
-                geonode_.GeoNodeRepository(self.context)
+                geonode_.GeoNodeRepository(self.context, repo_filter)
                 LOGGER.debug('GeoNode repository loaded (geonode): %s.' % \
                 self.repository.dbtype)
             except Exception as err:
@@ -268,7 +269,7 @@ class Csw(object):
 
             try:
                 self.repository = \
-                odc.OpenDataCatalogRepository(self.context)
+                odc.OpenDataCatalogRepository(self.context, repo_filter)
                 LOGGER.debug('OpenDataCatalog repository loaded (geonode): %s.' % \
                 self.repository.dbtype)
             except Exception as err:
@@ -472,8 +473,12 @@ class Csw(object):
                     Value MUST be CSW' % self.kvp['service']
 
                 # test version
+                try:
+                    kvp_version_integer = util.get_version_integer(self.kvp['version'])
+                except Exception as err:
+                    kvp_version_integer = 'invalid_value'
                 if ('version' in self.kvp and
-                    util.get_version_integer(self.kvp['version']) !=
+                    kvp_version_integer !=
                     util.get_version_integer('2.0.2') and
                     self.kvp['request'] != 'GetCapabilities'):
                     error = 1
@@ -593,9 +598,14 @@ class Csw(object):
         self.context.namespaces),
         exceptionCode=code, locator=locator)
 
-        etree.SubElement(exception,
+        exception_text = etree.SubElement(exception,
         util.nspath_eval('ows:ExceptionText',
-        self.context.namespaces)).text = text
+        self.context.namespaces))
+
+        try:
+            exception_text.text = text
+        except ValueError as err:
+            exception_text.text = repr(text)
 
         return node
 
@@ -1276,12 +1286,20 @@ class Csw(object):
                     % self.kvp['constraintlanguage'])
                 if self.kvp['constraintlanguage'] == 'CQL_TEXT':
                     tmp = self.kvp['constraint']
-                    self.kvp['constraint'] = {}
-                    self.kvp['constraint']['type'] = 'cql'
-                    self.kvp['constraint']['where'] = \
-                    self._cql_update_queryables_mappings(tmp,
-                    self.repository.queryables['_all'])
-                    self.kvp['constraint']['values'] = {}
+                    try:
+                        LOGGER.debug('Transforming CQL into fes1')
+                        LOGGER.debug('CQL: %s', tmp)
+                        self.kvp['constraint'] = {}
+                        self.kvp['constraint']['type'] = 'filter'
+                        cql = cql2fes1(tmp, self.context.namespaces)
+                        self.kvp['constraint']['where'], self.kvp['constraint']['values'] = fes.parse(cql,
+                        self.repository.queryables['_all'], self.repository.dbtype,
+                        self.context.namespaces, self.orm, self.language['text'], self.repository.fts)
+                    except Exception as err:
+                        LOGGER.error('Invalid CQL query %s', tmp)
+                        LOGGER.error('Error message: %s', err, exc_info=True)
+                        return self.exceptionreport('InvalidParameterValue',
+                        'constraint', 'Invalid Filter syntax')
                 elif self.kvp['constraintlanguage'] == 'FILTER':
                     # validate filter XML
                     try:
@@ -1359,8 +1377,10 @@ class Csw(object):
             maxrecords=self.kvp['maxrecords'],
             startposition=int(self.kvp['startposition'])-1)
         except Exception as err:
+            LOGGER.debug('Invalid query syntax.  Query: %s', self.kvp['constraint'])
+            LOGGER.debug('Invalid query syntax.  Result: %s', err)
             return self.exceptionreport('InvalidParameterValue', 'constraint',
-            'Invalid query: %s' % err)
+            'Invalid query syntax')
 
         dsresults = []
 
@@ -1380,7 +1400,9 @@ class Csw(object):
                 catalogue: %s.' % fedcat)
                 remotecsw = CatalogueServiceWeb(fedcat, skip_caps=True)
                 try:
-                    remotecsw.getrecords2(xml=self.request)
+                    remotecsw.getrecords2(xml=self.request,
+                                          esn=self.kvp['elementsetname'],
+                                          outputschema=self.kvp['outputschema'])
                     if hasattr(remotecsw, 'results'):
                         LOGGER.debug(
                         'Distributed search results from catalogue \
@@ -2315,6 +2337,12 @@ class Csw(object):
                         util.nspath_eval('dc:subject',
                         self.context.namespaces)).text = keyword
 
+                val = util.getqattr(recobj, self.context.md_core_model['mappings']['pycsw:TopicCategory'])
+                if val:
+                    etree.SubElement(record,
+                    util.nspath_eval('dc:subject',
+                    self.context.namespaces), scheme='http://www.isotc211.org/2005/resources/Codelist/gmxCodelists.xml#MD_TopicCategoryCode').text = val
+
                 val = util.getqattr(recobj, queryables['dc:format']['dbcol'])
                 if val:
                     etree.SubElement(record,
@@ -2466,13 +2494,21 @@ class Csw(object):
                 self.context.namespaces, self.orm, self.language['text'], self.repository.fts)
             except Exception as err:
                 return 'Invalid Filter request: %s' % err
+
         tmp = element.find(util.nspath_eval('csw:CqlText', self.context.namespaces))
         if tmp is not None:
             LOGGER.debug('CQL specified: %s.' % tmp.text)
-            query['type'] = 'cql'
-            query['where'] = self._cql_update_queryables_mappings(tmp.text,
-            self.repository.queryables['_all'])
-            query['values'] = {}
+            try:
+                LOGGER.debug('Transforming CQL into OGC Filter')
+                query['type'] = 'filter'
+                cql = cql2fes1(tmp.text, self.context.namespaces)
+                query['where'], query['values'] = fes.parse(cql,
+                self.repository.queryables['_all'], self.repository.dbtype,
+                self.context.namespaces, self.orm, self.language['text'], self.repository.fts)
+            except Exception as err:
+                LOGGER.error('Invalid CQL request: %s', tmp.text)
+                LOGGER.error('Error message: %s', err, exc_info=True)
+                return 'Invalid CQL request'
         return query
 
     def _test_manager(self):

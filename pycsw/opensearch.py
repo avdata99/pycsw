@@ -54,7 +54,12 @@ class OpenSearch(object):
     def response_csw2opensearch(self, element, cfg):
         """transform a CSW response into an OpenSearch response"""
 
-        LOGGER.debug('RESPONSE: %s', util.xmltag_split(element.tag))
+        root_tag = util.xmltag_split(element.tag)
+        if root_tag == 'ExceptionReport':
+            return element
+
+        LOGGER.debug('RESPONSE: %s', root_tag)
+
         if util.xmltag_split(element.tag) == 'GetRecordsResponse':
 
             startindex = int(element.xpath('//@nextRecord')[0]) - int(
@@ -94,7 +99,7 @@ class OpenSearch(object):
             node1 = etree.SubElement(node, 'Url')
             node1.set('type', 'application/atom+xml')
             node1.set('method', 'get')
-            node1.set('template', '%s?mode=opensearch&service=CSW&version=2.0.2&request=GetRecords&elementsetname=full&typenames=csw:Record&resulttype=results&q={searchTerms?}&bbox={geo:box?}&time={time:start?}/{time:end?}' % element.xpath('//ows:Get/@xlink:href', namespaces=self.context.namespaces)[0])
+            node1.set('template', '%s?mode=opensearch&service=CSW&version=2.0.2&request=GetRecords&elementsetname=full&typenames=csw:Record&resulttype=results&q={searchTerms?}&bbox={geo:box?}&time={time:start?}/{time:end?}&startposition={startIndex?}&maxrecords={count?}' % element.xpath('//ows:Get/@xlink:href', namespaces=self.context.namespaces)[0])
 
             node1 = etree.SubElement(node, 'Image')
             node1.set('type', 'image/vnd.microsoft.icon')

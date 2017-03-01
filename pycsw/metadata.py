@@ -34,7 +34,7 @@ from urlparse import urlparse
 from lxml import etree
 from owslib.util import build_get_url
 from pycsw import util
-from geolinks.links import sniff_link
+from geolinks import sniff_link
 
 LOGGER = logging.getLogger(__name__)
 
@@ -364,6 +364,20 @@ def _parse_wms(context, repos, record, identifier):
                 _set(context, recobj, 'pycsw:BoundingBox', util.bbox2wktpolygon(tmp))
                 _set(context, recobj, 'pycsw:CRS', 'urn:ogc:def:crs:EPSG:6.11:%s' % \
                 bbox[-1].split(':')[1])
+
+        times = md.contents[layer].timepositions
+        if times is not None:  # get temporal extent
+            time_begin = time_end = None
+            if len(times) == 1 and len(times[0].split('/')) > 1:
+                time_envelope = times[0].split('/')
+                time_begin = time_envelope[0]
+                time_end = time_envelope[1]
+            elif len(times) > 1:  # get first/last
+                time_begin = times[0]
+                time_end = times[-1]
+            if all([time_begin is not None, time_end is not None]):
+                _set(context, recobj, 'pycsw:TempExtent_begin', time_begin)
+                _set(context, recobj, 'pycsw:TempExtent_end', time_end)
 
         params = {
             'service': 'WMS',
