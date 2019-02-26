@@ -13,7 +13,8 @@ from jinja2 import Environment, FileSystemLoader
 from lxml import etree
 from pycsw import admin, config, repository, metadata, util
 
-logging.basicConfig(format='%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s [%(name)s] %(levelname)s: %(message)s', level=logging.DEBUG)
+log = logging.getLogger(__name__)
 
 CONTEXT = config.StaticContext()
 
@@ -224,8 +225,7 @@ if COMMAND == 'setup_db':
     schema, table = util.sniff_table('system_info')
     mdata = MetaData(engine, schema=schema)
 
-    LOGGER = logging.getLogger(__name__)
-    LOGGER.info('Creating system info table')
+    log.info('Creating system info table')
     system_info = Table(
         'system_info', mdata,
         Column('key', Text, index=True),
@@ -241,17 +241,89 @@ if COMMAND == 'setup_db':
 
 elif COMMAND == 'load':
     repo = repository.Repository(DATABASE, CONTEXT, table=TABLE)
-    query = '/api/search/dataset?qjson={"fl":"id,metadata_modified,extras_harvest_object_id,extras_source_datajson_identifier,extras_metadata_source,extras_collection_package_id", "q":"harvest_object_id:[\\"\\" TO *]", "limit":1000, "start":%s}'
-    print 'Started gathering CKAN datasets identifiers: {0}'.format(str(datetime.datetime.now()))
+    adapter = requests.adapters.HTTPAdapter(max_retries=3)
+    ckan_api = requests.Session()
+    ckan_api.mount('https://', adapter)
+    log.info('Started gathering CKAN datasets identifiers.')
+
+    def __reconcile(gathered_records, existing_records):
+        """
+        Compares the gathered_records against existing ones.
+        """
+
+        new = set(gathered_records) - set(existing_records)
+        deleted = set(existing_records) - set(gathered_records)
+        changed = set()
+
+        for key in set(gathered_records) & set(existing_records):
+            if gathered_records[key]['metadata_modified'] > existing_records[key]:
+                changed.add(key)
+
+        for ckan_id in deleted:
+            try:
+                repo.session.begin()
+                repo.session.query(repo.dataset.ckan_id).filter_by(
+                ckan_id=ckan_id).delete()
+                log.debug('Deleted %s', ckan_id)
+                repo.session.commit()
+            except Exception:
+                repo.session.rollback()
+                raise
+
+        for ckan_id in new:
+            ckan_info = gathered_records[ckan_id]
+            record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            if not record:
+                # Is this a potential error?
+                log.warning('Skipped record %s', ckan_id)
+                continue
+            try:
+                repo.insert(record, 'local', util.get_today_and_now())
+                log.debug('Inserted %s', ckan_id)
+            except Exception:
+                log.exception('Failed to insert %s', ckan_id)
+
+        for ckan_id in changed:
+            ckan_info = gathered_records[ckan_id]
+            record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            if not record:
+                # Error?
+                log.warning('Skipped record %s', ckan_id)
+                continue
+            update_dict = dict([(getattr(repo.dataset, key),
+            getattr(record, key)) \
+            for key in record.__dict__.keys() if key != '_sa_instance_state'])
+            try:
+                repo.session.begin()
+                repo.session.query(repo.dataset).filter_by(
+                ckan_id=ckan_id).update(update_dict)
+                repo.session.commit()
+                log.info('Changed %s', ckan_id)
+            except Exception, err:
+                repo.session.rollback()
+                raise RuntimeError, 'ERROR: %s' % str(err)
+
 
     start = 0
-
-    gathered_records = {}
-
     while True:
-        url = CKAN_URL + query % start
+        log.info('Fetching records from start=%s', start)
+        gathered_records = {}
+        response = ckan_api.get('%s/api/search/dataset' % CKAN_URL, params={
+            'qjson': {
+                'fl': ','.join([
+                    'id',
+                    'metadata_modified',
+                    'extras_harvest_object_id',
+                    'extras_source_datajson_identifier',
+                    'extras_metadata_source',
+                    'extras_collection_package_id',
+                ]),
+                'q': 'harvest_object_id:["" TO *]',
+                'limit': 1000,
+                'start': start,
+            }
+        })
 
-        response = requests.get(url)
         listing = response.json()
         if not isinstance(listing, dict):
             raise RuntimeError, 'Wrong API response: %s' % listing
@@ -264,9 +336,10 @@ elif COMMAND == 'load':
                 'harvest_object_id': result['extras']['harvest_object_id'],
                 'source': result['extras'].get('metadata_source')
             }
-            is_collection = True
-            if 'collection_package_id' in result['extras']:
-                is_collection = False
+            # This seems backwards to me. If collection_package_id exists,
+            # doesn't that make it a collection?
+            is_collection = 'collection_package_id' not in result['extras']
+            if is_collection:
                 gathered_records[result['id']]['collection_package_id'] = \
                     result['extras']['collection_package_id']
 
@@ -275,68 +348,20 @@ elif COMMAND == 'load':
                 gathered_records[result['id']]['source'] = 'datajson'
 
         start = start + 1000
-        print 'Gathered %s' % start
+        log.info('Gathered %s', start)
 
-    print 'Gather finished ({0} datasets): {1}'.format(
-        len(gathered_records.keys()),
-        str(datetime.datetime.now()))
+        # Fetch corresponding records, if any
+        existing_records = {}
+        query = repo.session
+            .query(repo.dataset.ckan_id, repo.dataset.ckan_modified)
+            .filter(repo.dataset.ckan_id.in_(gathered_records.keys()))
+        for row in query:
+            existing_records[row.ckan_id] = row.ckan_modified
+        log.debug('Found count=%s existing datasets', len(existing_records.keys()))
+        # Reconcile what's been fetched
+        __reconcile(gathered_records, existing_records)
 
-    existing_records = {}
 
-    query = repo.session.query(repo.dataset.ckan_id, repo.dataset.ckan_modified)
-    for row in query:
-        existing_records[row[0]] = row[1]
-    repo.session.close()
-
-    new = set(gathered_records) - set(existing_records)
-    deleted = set(existing_records) - set(gathered_records)
-    changed = set()
-
-    for key in set(gathered_records) & set(existing_records):
-        if gathered_records[key]['metadata_modified'] > existing_records[key]:
-            changed.add(key)
-
-    for ckan_id in deleted:
-        try:
-            repo.session.begin()
-            repo.session.query(repo.dataset.ckan_id).filter_by(
-            ckan_id=ckan_id).delete()
-            print 'Deleted %s' % ckan_id
-            repo.session.commit()
-        except Exception, err:
-            repo.session.rollback()
-            raise
-
-    for ckan_id in new:
-        ckan_info = gathered_records[ckan_id]
-        record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
-        if not record:
-            print 'Skipped record %s' % ckan_id
-            continue
-        try:
-            repo.insert(record, 'local', util.get_today_and_now())
-            print 'Inserted %s' % ckan_id
-        except Exception, err:
-            print 'ERROR: not inserted %s Error:%s' % (ckan_id, err)
-
-    for ckan_id in changed:
-        ckan_info = gathered_records[ckan_id]
-        record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
-        if not record:
-            print 'Skipped record %s' % ckan_id
-            continue
-        update_dict = dict([(getattr(repo.dataset, key),
-        getattr(record, key)) \
-        for key in record.__dict__.keys() if key != '_sa_instance_state'])
-        try:
-            repo.session.begin()
-            repo.session.query(repo.dataset).filter_by(
-            ckan_id=ckan_id).update(update_dict)
-            repo.session.commit()
-            print 'Changed %s' % ckan_id
-        except Exception, err:
-            repo.session.rollback()
-            raise RuntimeError, 'ERROR: %s' % str(err)
 elif COMMAND == 'set_keywords':
     """set pycsw service metadata keywords from top limit CKAN tags"""
     limit = 20
