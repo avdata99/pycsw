@@ -2,6 +2,7 @@
 
 import ConfigParser
 import getopt
+import json
 import logging
 import sys
 import datetime
@@ -309,7 +310,7 @@ elif COMMAND == 'load':
         log.info('Fetching records from start=%s', start)
         gathered_records = {}
         response = ckan_api.get('%s/api/search/dataset' % CKAN_URL, params={
-            'qjson': {
+            'qjson': json.dumps({
                 'fl': ','.join([
                     'id',
                     'metadata_modified',
@@ -321,7 +322,7 @@ elif COMMAND == 'load':
                 'q': 'harvest_object_id:["" TO *]',
                 'limit': 1000,
                 'start': start,
-            }
+            })
         })
 
         listing = response.json()
