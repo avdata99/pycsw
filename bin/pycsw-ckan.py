@@ -7,6 +7,7 @@ import logging
 import sys
 import datetime
 import requests
+import time
 import io
 import os
 
@@ -309,6 +310,7 @@ elif COMMAND == 'load':
 
 
     start = 0
+    error_count = 0
     while True:
         log.info('Fetching records from start=%s', start)
         gathered_records = {}
@@ -327,6 +329,15 @@ elif COMMAND == 'load':
                 'start': start,
             })
         })
+
+        if not response.ok:
+            log.error('CKAN API responded status=%s reason=%s', response.status_code, response.reason)
+            error_count += 1
+            if error_count > 2:
+                log.error('Exiting after multiple errors count=%s', error_count)
+            time.sleep(5 * error_count)
+            # Try again
+            continue
 
         listing = response.json()
         if not isinstance(listing, dict):
