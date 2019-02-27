@@ -355,9 +355,9 @@ elif COMMAND == 'load':
 
         # Fetch corresponding records, if any
         existing_records = {}
-        query = repo.session
+        query = (repo.session
             .query(repo.dataset.ckan_id, repo.dataset.ckan_modified)
-            .filter(repo.dataset.ckan_id.in_(gathered_records.keys()))
+            .filter(repo.dataset.ckan_id.in_(gathered_records.keys())))
         for row in query:
             existing_records[row.ckan_id] = row.ckan_modified
         log.info('Found count=%s existing datasets', len(existing_records.keys()))
