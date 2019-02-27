@@ -107,12 +107,12 @@ def keyword_list(value):
         return value.split(',')
 
 
-def get_record(context, repo, ckan_url, ckan_id, ckan_info):
+def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
 
     query = ckan_url + '/harvest/object/%s'
     url = query % ckan_info['harvest_object_id']
     print 'Fetching %s' % url
-    response = requests.get(url)
+    response = client.get(url)
 
     if not response.ok:
         print 'Could not get Harvest object for id %s (%d: %s)' % \
@@ -260,6 +260,7 @@ elif COMMAND == 'load':
             if gathered_records[key]['metadata_modified'] > existing_records[key]:
                 changed.add(key)
 
+        log.info('Reconciling deleted records count=%s', len(deleted))
         for ckan_id in deleted:
             try:
                 repo.session.begin()
@@ -271,9 +272,10 @@ elif COMMAND == 'load':
                 repo.session.rollback()
                 raise
 
+        log.info('Reconciling new records count=%s', len(new))
         for ckan_id in new:
             ckan_info = gathered_records[ckan_id]
-            record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            record = get_record(ckan_api, CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
             if not record:
                 # Is this a potential error?
                 log.warning('Skipped record %s', ckan_id)
@@ -284,9 +286,10 @@ elif COMMAND == 'load':
             except Exception:
                 log.exception('Failed to insert %s', ckan_id)
 
+        log.info('Reconciling updated records count=%s', len(changed))
         for ckan_id in changed:
             ckan_info = gathered_records[ckan_id]
-            record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            record = get_record(ckan_api, CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
             if not record:
                 # Error?
                 log.warning('Skipped record %s', ckan_id)
@@ -299,7 +302,7 @@ elif COMMAND == 'load':
                 repo.session.query(repo.dataset).filter_by(
                 ckan_id=ckan_id).update(update_dict)
                 repo.session.commit()
-                log.info('Changed %s', ckan_id)
+                log.debug('Changed %s', ckan_id)
             except Exception, err:
                 repo.session.rollback()
                 raise RuntimeError, 'ERROR: %s' % str(err)
@@ -337,9 +340,8 @@ elif COMMAND == 'load':
                 'harvest_object_id': result['extras']['harvest_object_id'],
                 'source': result['extras'].get('metadata_source')
             }
-            # This seems backwards to me. If collection_package_id exists,
-            # doesn't that make it a collection?
-            is_collection = 'collection_package_id' not in result['extras']
+
+            is_collection = 'collection_package_id' in result['extras']
             if is_collection:
                 gathered_records[result['id']]['collection_package_id'] = \
                     result['extras']['collection_package_id']
@@ -358,7 +360,7 @@ elif COMMAND == 'load':
             .filter(repo.dataset.ckan_id.in_(gathered_records.keys()))
         for row in query:
             existing_records[row.ckan_id] = row.ckan_modified
-        log.debug('Found count=%s existing datasets', len(existing_records.keys()))
+        log.info('Found count=%s existing datasets', len(existing_records.keys()))
         # Reconcile what's been fetched
         __reconcile(gathered_records, existing_records)
 
