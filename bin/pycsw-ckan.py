@@ -112,12 +112,12 @@ def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
 
     query = ckan_url + '/harvest/object/%s'
     url = query % ckan_info['harvest_object_id']
-    print 'Fetching %s' % url
+    log.debug('Fetching url=%s', url)
     response = client.get(url)
 
     if not response.ok:
-        print 'Could not get Harvest object for id %s (%d: %s)' % \
-                  (ckan_id, response.status_code, response.reason)
+        log.error('Could not get Harvest object for id=%s (%d: %s)',
+                  ckan_id, response.status_code, response.reason)
         return
 
     if ckan_info['source'] in ['arcgis', 'datajson']:  # convert json to iso
@@ -128,11 +128,11 @@ def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
         env = Environment(loader=FileSystemLoader(tmpldir))
 
         if ckan_info['source'] == 'arcgis':
-            print 'ArcGIS detected. Converting ArcGIS JSON to ISO XML: %s' % ckan_id
+            log.debug('ArcGIS detected. Converting ArcGIS JSON to ISO XML: %s', ckan_id)
             env.filters['to_date'] = to_date
             tmpl = 'arcgisjson2iso.xml'
         else:
-            print 'Open Data JSON detected. Converting to ISO XML: %s' % ckan_id
+            log.debug('Open Data JSON detected. Converting to ISO XML: %s', ckan_id)
             env.filters['keyword_list'] = keyword_list
             tmpl = 'datajson2iso.xml'
 
@@ -145,20 +145,20 @@ def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
     # from here we have an ISO document no matter what
     try:
         try:
-            print 'parsing XML as is'
+            log.debug('parsing XML as is')
             xml = etree.parse(io.BytesIO(content))
         except:
-            print 'parsing XML with .encode("utf8")'
+            log.debug('parsing XML with .encode("utf8")')
             xml = etree.parse(io.BytesIO(content.encode("utf8")))
     except Exception, err:
-        print 'Could not pass xml doc from %s, Error: %s' % (ckan_id, err)
+        log.exception('Could not pass xml doc from %s', ckan_id)
         return
 
     try:
-        print 'Parsing ISO XML'
+        log.debug('Parsing ISO XML')
         record = metadata.parse_record(context, xml, repo)[0]
         if not record.identifier:  # force id into ISO XML
-            print 'gmd:fileIdentifier is empty. Inserting id %s' % ckan_id
+            log.debug('gmd:fileIdentifier is empty. Inserting id=%s', ckan_id)
 
             record.identifier = ckan_id
 
@@ -167,23 +167,23 @@ def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
 
             xname = xml.find('{%s}fileIdentifier' % gmd_ns)
             if xname is None:  # doesn't exist, insert it
-                print 'Inserting new gmd:fileIdentifier'
+                log.debug('Inserting new gmd:fileIdentifier')
                 fileid = etree.Element('{%s}fileIdentifier' % gmd_ns)
                 etree.SubElement(fileid, '{%s}CharacterString' % gco_ns).text = ckan_id
                 xml.insert(0, fileid)
             else:  # gmd:fileIdentifier exists, check for gco:CharacterString
-                print 'Updating'
+                log.debug('Updating')
                 value = xname.find('{%s}CharacterString' % gco_ns)
                 if value is None:
-                    print 'missing gco:CharacterString'
+                    log.debug('missing gco:CharacterString')
                     etree.SubElement(xname, '{%s}CharacterString' % gco_ns).text = ckan_id
                 else:
-                    print 'empty gco:CharacterString'
+                    log.debug('empty gco:CharacterString')
                     value.text = ckan_id
             record.xml = etree.tostring(xml)
 
     except Exception, err:
-        print 'Could not extract metadata from %s, Error: %s' % (ckan_id, err)
+        log.exception('Could not extract metadata from %s', ckan_id)
         return
 
     record.ckan_id = ckan_id
