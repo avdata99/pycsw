@@ -16,7 +16,7 @@ from lxml import etree
 from pycsw import admin, config, repository, metadata, util
 
 logging.basicConfig(format='%(asctime)s [%(name)s] %(levelname)s: %(message)s', level=logging.DEBUG)
-log = logging.getLogger(__name__)
+log = logging.getLogger('pycsw-ckan')
 
 CONTEXT = config.StaticContext()
 
@@ -361,9 +361,6 @@ elif COMMAND == 'load':
             if 'source_datajson_identifier' in result['extras']:
                 gathered_records[result['id']]['source'] = 'datajson'
 
-        start = start + 1000
-        log.info('Gathered %s', start)
-
         # Fetch corresponding records, if any
         existing_records = {}
         query = (repo.session
@@ -372,8 +369,12 @@ elif COMMAND == 'load':
         for row in query:
             existing_records[row.ckan_id] = row.ckan_modified
         log.info('Found count=%s existing datasets', len(existing_records.keys()))
+
         # Reconcile what's been fetched
         __reconcile(gathered_records, existing_records)
+
+        start += 1000
+        log.info('Reconciled CKAN datasets progress=%s', start)
 
 
 elif COMMAND == 'set_keywords':
