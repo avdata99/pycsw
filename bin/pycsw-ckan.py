@@ -246,9 +246,9 @@ elif COMMAND == 'load':
     engine = create_engine(DATABASE)
     session = Session(bind=engine, autocommit=True)
     schema, table = util.sniff_table('ckan_load')
-    metadata = MetaData(engine, schema=schema)
+    mdata = MetaData(engine, schema=schema)
     # Maybe this should be part of setup_db
-    ckan_load = Table('ckan_load', metadata,
+    ckan_load = Table('ckan_load', mdata,
         Column('ckan_id', Text, primary_key=True),
         Column('ckan_modified', Text, index=True),
     )
