@@ -243,10 +243,14 @@ if COMMAND == 'setup_db':
 
 elif COMMAND == 'load':
     repo = repository.Repository(DATABASE, CONTEXT, table=TABLE)
+
+    # Configure retries for CKAN API in case of a network hiccup
     adapter = requests.adapters.HTTPAdapter(max_retries=3)
     ckan_api = requests.Session()
     ckan_api.mount('https://', adapter)
-    log.info('Started gathering CKAN datasets identifiers.')
+
+    # Set the auth_tkt cookie to talk to admin API
+    ckan_api.cookies = requests.cookies.cookiejar_from_dict(dict(auth_tkt='1'))
 
     def __reconcile(gathered_records, existing_records):
         """
@@ -352,8 +356,10 @@ elif COMMAND == 'load':
                 'source': result['extras'].get('metadata_source')
             }
 
-            is_collection = 'collection_package_id' in result['extras']
-            if is_collection:
+            # You are not a collection if you are a member of a collection.
+            # Members will have the collection_package_id
+            is_collection = 'collection_package_id' not in result['extras']
+            if not is_collection:
                 gathered_records[result['id']]['collection_package_id'] = \
                     result['extras']['collection_package_id']
 
