@@ -320,6 +320,8 @@ elif COMMAND == 'load':
         # This could be None if there is no interrupted load job
         last_processed_metadata_modified = (session.
             query(ckan_load.c.ckan_modified).order_by(ckan_load.c.ckan_modified).first())
+        if last_processed_metadata_modified:
+            log.info('Resuming from previous load job metadata_modified=%s', last_processed_metadata_modified)
 
     log.info('Gathering CKAN datasets identifiers in batches')
     start = 0
@@ -373,13 +375,17 @@ elif COMMAND == 'load':
             # We're done!
             break
 
+        # At this point, increment the offset so our next request is the next batch
+        start += 1000
+
         # Check that we are not resuming a run and need to skip already processed datasets
         already_processed = set()
         if last_processed_metadata_modified:
             with session.begin():
-                already_processed = set(session.query(select(ckan_load.c.ckan_id).where(ckan_load.c.ckan_id.in_(result['id'] for result in results))))
+                already_processed = set([r.ckan_id for r in session.execute(select([ckan_load.c.ckan_id]).where(ckan_load.c.ckan_id.in_(result['id'] for result in results)))])
+                log.info('Some gathered datasets already processed already_processed=%s gathered=%s', len(already_processed), len(results))
 
-        for result in results if result['id'] not in already_processed:
+        for result in (r for r in results if r['id'] not in already_processed):
             gathered_records[result['id']] = {
                 'metadata_modified': result['metadata_modified'],
                 'harvest_object_id': result['extras']['harvest_object_id'],
@@ -397,6 +403,10 @@ elif COMMAND == 'load':
             if 'source_datajson_identifier' in result['extras']:
                 gathered_records[result['id']]['source'] = 'datajson'
 
+        if not gathered_records:
+           # Everything gathered has already been processed, get a new batch
+           continue
+
         # Fetch existing records, if any
         existing_records = {}
         query = (repo.session
@@ -413,7 +423,6 @@ elif COMMAND == 'load':
         with session.begin():
             session.execute(ckan_load.insert().values([(ckan_id, gathered_records[ckan_id]['metadata_modified']) for ckan_id in gathered_records.keys()]))
 
-        start += 1000
         log.info('Reconciled CKAN datasets progress=%s', start)
 
     # Next, delete any records that we didn't see while scanning CKAN. We let
