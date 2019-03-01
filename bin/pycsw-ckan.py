@@ -312,6 +312,9 @@ elif COMMAND == 'load':
                 repo.session.rollback()
                 raise RuntimeError, 'ERROR: %s' % str(err)
 
+        log.info('Reconciled summary gathered=%s new=%s changed=%s',
+                 len(gathered_records), len(new), len(changed))
+
 
     # Check for an interrupted load and continue where it left off.
     log.info('Checking for an interrupted load job to resume')
@@ -425,16 +428,16 @@ elif COMMAND == 'load':
 
         log.info('Reconciled CKAN datasets progress=%s', start)
 
-    # Next, delete any records that we didn't see while scanning CKAN. We let
-    # errors raise and interrupt the job since it puts into question the
-    # integrity of our sync.
-    log.info('Deleting records not seen')
     with session.begin():
-        session.execute(delete(repo.dataset, ~exists().where(repo.dataset.ckan_id == ckan_load.ckan_id)))
+        # Next, delete any records that we didn't see while scanning CKAN. We let
+        # errors raise and interrupt the job since it puts into question the
+        # integrity of our sync.
+        log.info('Deleting records not seen')
+        deleted_count = session.execute(delete(repo.dataset, ~exists().where(repo.dataset.ckan_id == ckan_load.c.ckan_id))).rowcount
+        log.info('Deleted records count=%s', deleted_count)
 
-    # Truncate ckan_load. Let errors raise and interrupt.
-    log.info('Cleaning up')
-    with session.begin():
+        # Truncate ckan_load. Let errors raise and interrupt.
+        log.info('Cleaning up')
         session.execute('TRUNCATE TABLE ckan_load')
 
 
