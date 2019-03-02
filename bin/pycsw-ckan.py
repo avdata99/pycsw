@@ -2,18 +2,25 @@
 
 import ConfigParser
 import getopt
+import json
 import logging
 import sys
 import datetime
 import requests
+import time
 import io
 import os
 
 from jinja2 import Environment, FileSystemLoader
 from lxml import etree
 from pycsw import admin, config, repository, metadata, util
+from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
+    create_engine, delete, exists, select
 
-logging.basicConfig(format='%(message)s', level=logging.DEBUG)
+from sqlalchemy.orm.session import Session
+
+logging.basicConfig(format='%(asctime)s [%(name)s] %(levelname)s: %(message)s', level=logging.DEBUG)
+log = logging.getLogger('pycsw-ckan')
 
 CONTEXT = config.StaticContext()
 
@@ -105,16 +112,16 @@ def keyword_list(value):
         return value.split(',')
 
 
-def get_record(context, repo, ckan_url, ckan_id, ckan_info):
+def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
 
     query = ckan_url + '/harvest/object/%s'
     url = query % ckan_info['harvest_object_id']
-    print 'Fetching %s' % url
-    response = requests.get(url)
+    log.debug('Fetching url=%s', url)
+    response = client.get(url)
 
     if not response.ok:
-        print 'Could not get Harvest object for id %s (%d: %s)' % \
-                  (ckan_id, response.status_code, response.reason)
+        log.error('Could not get Harvest object for id=%s (%d: %s)',
+                  ckan_id, response.status_code, response.reason)
         return
 
     if ckan_info['source'] in ['arcgis', 'datajson']:  # convert json to iso
@@ -125,11 +132,11 @@ def get_record(context, repo, ckan_url, ckan_id, ckan_info):
         env = Environment(loader=FileSystemLoader(tmpldir))
 
         if ckan_info['source'] == 'arcgis':
-            print 'ArcGIS detected. Converting ArcGIS JSON to ISO XML: %s' % ckan_id
+            log.debug('ArcGIS detected. Converting ArcGIS JSON to ISO XML: %s', ckan_id)
             env.filters['to_date'] = to_date
             tmpl = 'arcgisjson2iso.xml'
         else:
-            print 'Open Data JSON detected. Converting to ISO XML: %s' % ckan_id
+            log.debug('Open Data JSON detected. Converting to ISO XML: %s', ckan_id)
             env.filters['keyword_list'] = keyword_list
             tmpl = 'datajson2iso.xml'
 
@@ -142,20 +149,20 @@ def get_record(context, repo, ckan_url, ckan_id, ckan_info):
     # from here we have an ISO document no matter what
     try:
         try:
-            print 'parsing XML as is'
+            log.debug('parsing XML as is')
             xml = etree.parse(io.BytesIO(content))
         except:
-            print 'parsing XML with .encode("utf8")'
+            log.debug('parsing XML with .encode("utf8")')
             xml = etree.parse(io.BytesIO(content.encode("utf8")))
     except Exception, err:
-        print 'Could not pass xml doc from %s, Error: %s' % (ckan_id, err)
+        log.exception('Could not pass xml doc from %s', ckan_id)
         return
 
     try:
-        print 'Parsing ISO XML'
+        log.debug('Parsing ISO XML')
         record = metadata.parse_record(context, xml, repo)[0]
         if not record.identifier:  # force id into ISO XML
-            print 'gmd:fileIdentifier is empty. Inserting id %s' % ckan_id
+            log.debug('gmd:fileIdentifier is empty. Inserting id=%s', ckan_id)
 
             record.identifier = ckan_id
 
@@ -164,23 +171,23 @@ def get_record(context, repo, ckan_url, ckan_id, ckan_info):
 
             xname = xml.find('{%s}fileIdentifier' % gmd_ns)
             if xname is None:  # doesn't exist, insert it
-                print 'Inserting new gmd:fileIdentifier'
+                log.debug('Inserting new gmd:fileIdentifier')
                 fileid = etree.Element('{%s}fileIdentifier' % gmd_ns)
                 etree.SubElement(fileid, '{%s}CharacterString' % gco_ns).text = ckan_id
                 xml.insert(0, fileid)
             else:  # gmd:fileIdentifier exists, check for gco:CharacterString
-                print 'Updating'
+                log.debug('Updating')
                 value = xname.find('{%s}CharacterString' % gco_ns)
                 if value is None:
-                    print 'missing gco:CharacterString'
+                    log.debug('missing gco:CharacterString')
                     etree.SubElement(xname, '{%s}CharacterString' % gco_ns).text = ckan_id
                 else:
-                    print 'empty gco:CharacterString'
+                    log.debug('empty gco:CharacterString')
                     value.text = ckan_id
             record.xml = etree.tostring(xml)
 
     except Exception, err:
-        print 'Could not extract metadata from %s, Error: %s' % (ckan_id, err)
+        log.exception('Could not extract metadata from %s', ckan_id)
         return
 
     record.ckan_id = ckan_id
@@ -201,9 +208,6 @@ if COMMAND not in ['setup_db', 'load', 'set_keywords']:
     sys.exit(5)
 
 if COMMAND == 'setup_db':
-    from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
-            create_engine
-
     ckan_columns = [
         Column('ckan_id', Text, index=True),
         Column('ckan_modified', Text),
@@ -224,8 +228,7 @@ if COMMAND == 'setup_db':
     schema, table = util.sniff_table('system_info')
     mdata = MetaData(engine, schema=schema)
 
-    LOGGER = logging.getLogger(__name__)
-    LOGGER.info('Creating system info table')
+    log.info('Creating system info table')
     system_info = Table(
         'system_info', mdata,
         Column('key', Text, index=True),
@@ -240,33 +243,162 @@ if COMMAND == 'setup_db':
         print 'ERROR: DB creation error.  Database tables already exist'
 
 elif COMMAND == 'load':
+    engine = create_engine(DATABASE)
+    session = Session(bind=engine, autocommit=True)
+    schema, table = util.sniff_table('ckan_load')
+    mdata = MetaData(engine, schema=schema)
+    # Maybe this should be part of setup_db
+    ckan_load = Table('ckan_load', mdata,
+        Column('ckan_id', Text, primary_key=True),
+        Column('ckan_modified', Text, index=True),
+    )
+    if not ckan_load.exists():
+        ckan_load.create()
+
     repo = repository.Repository(DATABASE, CONTEXT, table=TABLE)
-    query = '/api/search/dataset?qjson={"fl":"id,metadata_modified,extras_harvest_object_id,extras_source_datajson_identifier,extras_metadata_source,extras_collection_package_id", "q":"harvest_object_id:[\\"\\" TO *]", "limit":1000, "start":%s}'
-    print 'Started gathering CKAN datasets identifiers: {0}'.format(str(datetime.datetime.now()))
 
+    # Configure retries for CKAN API in case of a network hiccup
+    adapter = requests.adapters.HTTPAdapter(max_retries=3)
+    ckan_api = requests.Session()
+    ckan_api.mount('https://', adapter)
+
+    # Set the auth_tkt cookie to talk to admin API
+    ckan_api.cookies = requests.cookies.cookiejar_from_dict(dict(auth_tkt='1'))
+
+    def __reconcile(gathered_records, existing_records):
+        """
+        Compares the gathered_records against existing ones.
+        """
+
+        new = set(gathered_records) - set(existing_records)
+        changed = set()
+
+        for key in set(gathered_records) & set(existing_records):
+            if gathered_records[key]['metadata_modified'] > existing_records[key]:
+                changed.add(key)
+
+        log.info('Reconciling new records count=%s', len(new))
+        for ckan_id in new:
+            ckan_info = gathered_records[ckan_id]
+            record = get_record(ckan_api, CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            if not record:
+                # Is this a potential error?
+                log.warning('Skipped record %s', ckan_id)
+                continue
+            try:
+                repo.insert(record, 'local', util.get_today_and_now())
+                log.debug('Inserted %s', ckan_id)
+            except Exception:
+                log.exception('Failed to insert %s', ckan_id)
+
+        log.info('Reconciling updated records count=%s', len(changed))
+        for ckan_id in changed:
+            ckan_info = gathered_records[ckan_id]
+            record = get_record(ckan_api, CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
+            if not record:
+                # Error?
+                log.warning('Skipped record %s', ckan_id)
+                continue
+            update_dict = dict([(getattr(repo.dataset, key),
+            getattr(record, key)) \
+            for key in record.__dict__.keys() if key != '_sa_instance_state'])
+            try:
+                repo.session.begin()
+                repo.session.query(repo.dataset).filter_by(
+                ckan_id=ckan_id).update(update_dict)
+                repo.session.commit()
+                log.debug('Changed %s', ckan_id)
+            except Exception, err:
+                repo.session.rollback()
+                raise RuntimeError, 'ERROR: %s' % str(err)
+
+        log.info('Reconciled summary gathered=%s new=%s changed=%s',
+                 len(gathered_records), len(new), len(changed))
+
+
+    # Check for an interrupted load and continue where it left off.
+    log.info('Checking for an interrupted load job to resume')
+    last_processed_metadata_modified = None
+    with session.begin():
+        # This could be None if there is no interrupted load job
+        last_processed_metadata_modified = (session.
+            query(ckan_load.c.ckan_modified).order_by(ckan_load.c.ckan_modified).first())
+        if last_processed_metadata_modified:
+            log.info('Resuming from previous load job metadata_modified=%s', last_processed_metadata_modified)
+
+    log.info('Gathering CKAN datasets identifiers in batches')
     start = 0
-
-    gathered_records = {}
-
+    error_count = 0
     while True:
-        url = CKAN_URL + query % start
+        log.info('Fetching records from start=%s', start)
+        gathered_records = {}
 
-        response = requests.get(url)
+        # It's important that we process the datasets in order from oldest to
+        # newest. We assume that when a dataset is updated, it's
+        # metadata_modified is modified. If we are interrupted and need to
+        # pick up where we left off, we can be sure that everything up to
+        # last_processed_metadata_modified has been synced and can continue
+        # from that last timestamp. Note: datasets older than that could have
+        # been deleted, but we will pick that up in the next clean load job.
+        #
+        # TODO this is a legacy API and should move to the action/pacage_search
+        # API. We need to handle collection members properly, since CKAN
+        # filters out collection_dataset_id unless it is specified.
+        response = ckan_api.get('%s/api/search/dataset' % CKAN_URL, params={
+            'qjson': json.dumps({
+                'fl': ','.join([
+                    'id',
+                    'metadata_modified',
+                    'extras_harvest_object_id',
+                    'extras_source_datajson_identifier',
+                    'extras_metadata_source',
+                    'extras_collection_package_id',
+                ]),
+                'q': '+harvest_object_id:* +metadata_modified:[%s TO *]' % (last_processed_metadata_modified or '*'),
+                'limit': 1000,
+                'start': start,
+                'sort': 'metadata_modified asc',
+            })
+        })
+
+        if not response.ok:
+            log.error('CKAN API responded status=%s reason=%s', response.status_code, response.reason)
+            error_count += 1
+            if error_count > 2:
+                log.error('Exiting after multiple errors count=%s', error_count)
+            time.sleep(20 * error_count)
+            # Try again
+            continue
+
         listing = response.json()
         if not isinstance(listing, dict):
             raise RuntimeError, 'Wrong API response: %s' % listing
         results = listing.get('results')
         if not results:
+            # We're done!
             break
-        for result in results:
+
+        # At this point, increment the offset so our next request is the next batch
+        start += 1000
+
+        # Check that we are not resuming a run and need to skip already processed datasets
+        already_processed = set()
+        if last_processed_metadata_modified:
+            with session.begin():
+                already_processed = set([r.ckan_id for r in session.execute(select([ckan_load.c.ckan_id]).where(ckan_load.c.ckan_id.in_(result['id'] for result in results)))])
+                log.info('Some gathered datasets already processed already_processed=%s gathered=%s', len(already_processed), len(results))
+
+        for result in (r for r in results if r['id'] not in already_processed):
             gathered_records[result['id']] = {
                 'metadata_modified': result['metadata_modified'],
                 'harvest_object_id': result['extras']['harvest_object_id'],
                 'source': result['extras'].get('metadata_source')
             }
-            is_collection = True
-            if 'collection_package_id' in result['extras']:
-                is_collection = False
+
+            # You are not a collection if you are a member of a collection.
+            # Members will have the collection_package_id
+            is_collection = 'collection_package_id' not in result['extras']
+            if not is_collection:
                 gathered_records[result['id']]['collection_package_id'] = \
                     result['extras']['collection_package_id']
 
@@ -274,69 +406,41 @@ elif COMMAND == 'load':
             if 'source_datajson_identifier' in result['extras']:
                 gathered_records[result['id']]['source'] = 'datajson'
 
-        start = start + 1000
-        print 'Gathered %s' % start
+        if not gathered_records:
+           # Everything gathered has already been processed, get a new batch
+           continue
 
-    print 'Gather finished ({0} datasets): {1}'.format(
-        len(gathered_records.keys()),
-        str(datetime.datetime.now()))
+        # Fetch existing records, if any
+        existing_records = {}
+        query = (repo.session
+            .query(repo.dataset.ckan_id, repo.dataset.ckan_modified)
+            .filter(repo.dataset.ckan_id.in_(gathered_records.keys())))
+        for row in query:
+            existing_records[row.ckan_id] = row.ckan_modified
+        log.info('Found count=%s existing datasets', len(existing_records.keys()))
 
-    existing_records = {}
+        # Reconcile what's been fetched
+        __reconcile(gathered_records, existing_records)
 
-    query = repo.session.query(repo.dataset.ckan_id, repo.dataset.ckan_modified)
-    for row in query:
-        existing_records[row[0]] = row[1]
-    repo.session.close()
+        # Insert rows into ckan_load so we know what we've processed. Interrupt the job if this fails.
+        with session.begin():
+            session.execute(ckan_load.insert().values([(ckan_id, gathered_records[ckan_id]['metadata_modified']) for ckan_id in gathered_records.keys()]))
 
-    new = set(gathered_records) - set(existing_records)
-    deleted = set(existing_records) - set(gathered_records)
-    changed = set()
+        log.info('Reconciled CKAN datasets progress=%s', start)
 
-    for key in set(gathered_records) & set(existing_records):
-        if gathered_records[key]['metadata_modified'] > existing_records[key]:
-            changed.add(key)
+    with session.begin():
+        # Next, delete any records that we didn't see while scanning CKAN. We let
+        # errors raise and interrupt the job since it puts into question the
+        # integrity of our sync.
+        log.info('Deleting records not seen')
+        deleted_count = session.execute(delete(repo.dataset, ~exists().where(repo.dataset.ckan_id == ckan_load.c.ckan_id))).rowcount
+        log.info('Deleted records count=%s', deleted_count)
 
-    for ckan_id in deleted:
-        try:
-            repo.session.begin()
-            repo.session.query(repo.dataset.ckan_id).filter_by(
-            ckan_id=ckan_id).delete()
-            print 'Deleted %s' % ckan_id
-            repo.session.commit()
-        except Exception, err:
-            repo.session.rollback()
-            raise
+        # Truncate ckan_load. Let errors raise and interrupt.
+        log.info('Cleaning up')
+        session.execute('TRUNCATE TABLE ckan_load')
 
-    for ckan_id in new:
-        ckan_info = gathered_records[ckan_id]
-        record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
-        if not record:
-            print 'Skipped record %s' % ckan_id
-            continue
-        try:
-            repo.insert(record, 'local', util.get_today_and_now())
-            print 'Inserted %s' % ckan_id
-        except Exception, err:
-            print 'ERROR: not inserted %s Error:%s' % (ckan_id, err)
 
-    for ckan_id in changed:
-        ckan_info = gathered_records[ckan_id]
-        record = get_record(CONTEXT, repo, CKAN_URL, ckan_id, ckan_info)
-        if not record:
-            print 'Skipped record %s' % ckan_id
-            continue
-        update_dict = dict([(getattr(repo.dataset, key),
-        getattr(record, key)) \
-        for key in record.__dict__.keys() if key != '_sa_instance_state'])
-        try:
-            repo.session.begin()
-            repo.session.query(repo.dataset).filter_by(
-            ckan_id=ckan_id).update(update_dict)
-            repo.session.commit()
-            print 'Changed %s' % ckan_id
-        except Exception, err:
-            repo.session.rollback()
-            raise RuntimeError, 'ERROR: %s' % str(err)
 elif COMMAND == 'set_keywords':
     """set pycsw service metadata keywords from top limit CKAN tags"""
     limit = 20
