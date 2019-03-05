@@ -324,7 +324,7 @@ elif COMMAND == 'load':
     with session.begin():
         # This could be None if there is no interrupted load job
         last_processed_metadata_modified = (session.
-            query(ckan_load.c.ckan_modified).order_by(ckan_load.c.ckan_modified).first())
+            query(ckan_load.c.ckan_modified).order_by(ckan_load.c.ckan_modified.desc()).first())
         if last_processed_metadata_modified:
             log.info('Resuming from previous load job metadata_modified=%s', last_processed_metadata_modified)
 
