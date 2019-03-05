@@ -288,8 +288,9 @@ elif COMMAND == 'load':
             try:
                 repo.insert(record, 'local', util.get_today_and_now())
                 log.debug('Inserted %s', ckan_id)
-            except Exception:
+            except RuntimeError:
                 log.exception('Failed to insert %s', ckan_id)
+                continue
 
         log.info('Reconciling updated records count=%s', len(changed))
         for ckan_id in changed:
@@ -308,9 +309,10 @@ elif COMMAND == 'load':
                 ckan_id=ckan_id).update(update_dict)
                 repo.session.commit()
                 log.debug('Changed %s', ckan_id)
-            except Exception, err:
+            except RuntimeError:
+                log.exception('Failed to update ckan_id=%s', ckan_id)
                 repo.session.rollback()
-                raise RuntimeError, 'ERROR: %s' % str(err)
+                continue
 
         log.info('Reconciled summary gathered=%s new=%s changed=%s',
                  len(gathered_records), len(new), len(changed))
