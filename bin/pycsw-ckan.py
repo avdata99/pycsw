@@ -11,6 +11,12 @@ import time
 import io
 import os
 
+os.environ.setdefault('NEW_RELIC_CONFIG_FILE', '/etc/newrelic/newrelic.ini')
+
+import newrelic.agent
+newrelic.agent.initialize()
+newrelic.agent.register_application(name='pycsw')
+
 from jinja2 import Environment, FileSystemLoader
 from lxml import etree
 from pycsw import admin, config, repository, metadata, util

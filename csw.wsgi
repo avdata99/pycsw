@@ -59,9 +59,14 @@ import sys
 app_path = os.path.dirname(__file__)
 sys.path.append(app_path)
 
+import newrelic.agent
+os.environ.setdefault('NEW_RELIC_CONFIG_FILE', '/etc/newrelic/newrelic.ini')
+newrelic.agent.initialize()
+
 from pycsw import server
 
 
+@newrelic.agent.wsgi_applciation(application='pycsw')
 def application(env, start_response):
     """WSGI wrapper"""
     config = 'default.cfg'

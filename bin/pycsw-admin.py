@@ -33,7 +33,14 @@
 import ConfigParser
 import getopt
 import logging
+import os
 import sys
+
+os.environ.setdefault('NEW_RELIC_CONFIG_FILE', '/etc/newrelic/newrelic.ini')
+
+import newrelic.agent
+newrelic.agent.initialize()
+newrelic.agent.register_application(name='pycsw')
 
 from pycsw import admin, config
 
