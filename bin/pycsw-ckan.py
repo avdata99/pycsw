@@ -211,7 +211,7 @@ if COMMAND == 'setup_db':
     ckan_columns = [
         Column('ckan_id', Text, index=True),
         Column('ckan_modified', Text),
-        Column('ckan_collection', Boolean),
+        Column('ckan_collection', Boolean, index=True),
     ]
     try:
         admin.setup_db(DATABASE, TABLE,
