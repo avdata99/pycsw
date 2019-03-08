@@ -8,8 +8,12 @@ execfile(activate_this, {'__file__': activate_this})
 app_path = os.path.dirname(__file__)
 sys.path.append(app_path)
 
+import newrelic.agent
+newrelic.agent.initialize()
+
 from pycsw import server
 
+@newrelic.agent.wsgi_application(application='pycsw')
 def application(env, start_response):
     """WSGI wrapper"""
     
