@@ -143,6 +143,7 @@ setup(
         os.path.join('bin', 'pycsw-admin.py'),
         os.path.join('bin', 'pycsw-ckan.py'),
         os.path.join('bin', 'pycsw-db-admin.py'),
+        os.path.join('bin', 'pycsw-load.sh'),
     ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
