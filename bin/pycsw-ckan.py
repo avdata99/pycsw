@@ -13,7 +13,7 @@ import os
 
 from jinja2 import Environment, FileSystemLoader
 from lxml import etree
-from pycsw import admin, config, repository, metadata, util
+from pycsw.core import admin, config, repository, metadata, util
 from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
     create_engine, delete, exists, select
 
@@ -225,8 +225,7 @@ if COMMAND == 'setup_db':
 
     # create system_info table
     engine = create_engine(DATABASE)
-    schema, table = util.sniff_table('system_info')
-    mdata = MetaData(engine, schema=schema)
+    mdata = MetaData(engine, schema=None)
 
     log.info('Creating system info table')
     system_info = Table(
@@ -245,8 +244,7 @@ if COMMAND == 'setup_db':
 elif COMMAND == 'load':
     engine = create_engine(DATABASE)
     session = Session(bind=engine, autocommit=True)
-    schema, table = util.sniff_table('ckan_load')
-    mdata = MetaData(engine, schema=schema)
+    mdata = MetaData(engine, schema=None)
     # Maybe this should be part of setup_db
     ckan_load = Table('ckan_load', mdata,
         Column('ckan_id', Text, primary_key=True),
