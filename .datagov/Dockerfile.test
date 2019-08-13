@@ -1,0 +1,7 @@
+FROM alpine:3.10
+
+RUN apk add bash curl grep
+
+COPY .datagov/test.sh /app/test.sh
+
+CMD ["/app/test.sh"]

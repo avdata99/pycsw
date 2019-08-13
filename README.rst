@@ -1,3 +1,34 @@
+# pycsw
+
+This repo has been forked to provide:
+
+- CKAN loading ([#892](https://github.com/GSA/datagov-deploy/issues/892))
+- CKAN keywords ()
+- Collections support for Data.gov ()
+
+
+## Development
+
+
+### Setup
+
+Start the containers.
+
+    $ docker-compose up
+
+Initialize the database.
+
+    $ docker-compose run --rm app pipenv run pycsw-ckan.py -c setup_db -f /etc/pycsw/pycsw.cfg
+
+
+### CKAN loading
+
+The CKAN loading job is configured to load from production catalog. You might want to change the configuration in [.datagov/pycsw.cfg](/.datagov/pycsw.cfg).
+
+    $ docker-compose run --rm app pipenv run pycsw-ckan.py -c load -f /etc/pycsw/pycsw.cfg
+
+
+--
 pycsw README
 ============
 

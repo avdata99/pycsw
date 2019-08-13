@@ -10,15 +10,16 @@ geolinks = "*"
 gunicorn = "*"
 Jinja2 = "*"
 lxml = "*"
+newrelic = "*"
 OWSLib = "*"
 psycopg2 = "*"
+pycsw = {path = ".",editable = true}
 pyproj = "*"
 requests = "*"
 Shapely = "*"
 six = "*"
 SQLAlchemy = "*"
 xmltodict = "*"
-pycsw = {editable = true,path = "."}
 
 [requires]
-python_version = "3.6"
+python_version = "2.7"

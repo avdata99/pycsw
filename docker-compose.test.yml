@@ -1,0 +1,9 @@
+version: '3.7'
+services:
+  test:
+    build:
+      context: .
+      dockerfile: .datagov/Dockerfile.test
+    depends_on:
+      - app
+    command: /app/test.sh

@@ -1,12 +1,27 @@
-version: '3'
+version: '3.7'
 services:
   app:
     build:
       context: .
       dockerfile: .datagov/Dockerfile
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
     volumes:
-      - virtualenvs:/home/pycsw/.virtualenvs
-      - .:/home/pycsw/pycsw
+      - .:/app
+      - /app/.venv
+      - ./.datagov/pycsw.cfg:/etc/pycsw/pycsw.cfg
+
+  db:
+    image: mdillon/postgis:9.6-alpine
+    environment:
+      POSTGRES_DB: pycsw
+      POSTGRES_USER: pycsw
+      POSTGRES_PASSWORD: dev-not-secure-password
+    volumes:
+      - db:/var/lib/postgresql/data
+
 
 volumes:
-  virtualenvs:
+  db:
