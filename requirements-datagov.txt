@@ -1,4 +1,5 @@
 -i https://pypi.org/simple
+-e .
 certifi==2019.6.16
 chardet==3.0.4
 geolinks==0.2.0
