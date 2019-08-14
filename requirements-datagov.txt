@@ -5,9 +5,10 @@ geolinks==0.2.0
 gunicorn==19.9.0
 idna==2.8
 jinja2==2.10.1
-lxml==4.4.0
+lxml==4.4.1
 markupsafe==1.1.1
 owslib==0.18.0
+psycopg2==2.8.3
 pyproj==2.2.1
 python-dateutil==2.8.0
 pytz==2019.2
