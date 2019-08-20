@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: .datagov/Dockerfile
+    environment:
+      NEW_RELIC_ENABLED: 0
+      NEW_RELIC_ENVIRONMENT: develop
     volumes:
       - virtualenvs:/home/pycsw/.virtualenvs
       - .:/home/pycsw/pycsw
