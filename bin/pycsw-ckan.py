@@ -128,7 +128,7 @@ def get_record(client, context, repo, ckan_url, ckan_id, ckan_info):
         result = response.json()
         tmpldir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                '..',
-                               'src/pycsw/pycsw/templates')
+                               'pycsw/templates')
         env = Environment(loader=FileSystemLoader(tmpldir))
 
         if ckan_info['source'] == 'arcgis':
