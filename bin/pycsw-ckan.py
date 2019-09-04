@@ -16,7 +16,7 @@ from lxml import etree
 from pycsw.core import admin, config, repository, metadata, util
 from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
     create_engine, delete, exists, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from sqlalchemy.orm.session import Session
 
