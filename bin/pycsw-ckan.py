@@ -287,6 +287,9 @@ elif COMMAND == 'load':
             try:
                 repo.insert(record, 'local', util.get_today_and_now())
                 log.debug('Inserted %s', ckan_id)
+            except IntegrityError:
+                log.warning('Duplicate identifier, failed to insert %s', ckan_id)
+                continue
             except (OperationalError, RuntimeError):
                 log.exception('Failed to insert %s', ckan_id)
                 continue
