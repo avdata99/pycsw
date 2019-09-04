@@ -16,6 +16,7 @@ from lxml import etree
 from pycsw.core import admin, config, repository, metadata, util
 from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
     create_engine, delete, exists, select
+from sqlalchemy.exc import OperationalError
 
 from sqlalchemy.orm.session import Session
 
@@ -286,7 +287,7 @@ elif COMMAND == 'load':
             try:
                 repo.insert(record, 'local', util.get_today_and_now())
                 log.debug('Inserted %s', ckan_id)
-            except RuntimeError:
+            except (OperationalError, RuntimeError):
                 log.exception('Failed to insert %s', ckan_id)
                 continue
 
