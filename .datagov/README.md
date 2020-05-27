@@ -6,6 +6,14 @@
 - CKAN import
 - Dynamically pull keywords from CKAN
 
+## Usage
+
+### Database Setup
+
+The database needs to be initialized with schema from our fork.
+
+    $ pycsw-ckan.py -c setup_db -f /etc/pycsw/pycsw-collection.cfg
+
 
 ## Development
 
