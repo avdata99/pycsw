@@ -16,7 +16,7 @@ from lxml import etree
 from pycsw.core import admin, config, repository, metadata, util
 from sqlalchemy import Table, Boolean, Column, Text, MetaData, \
     create_engine, delete, exists, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, IntegrityError
 
 from sqlalchemy.orm.session import Session
 
@@ -289,6 +289,9 @@ elif COMMAND == 'load':
                 log.debug('Inserted %s', ckan_id)
             except (OperationalError, RuntimeError):
                 log.exception('Failed to insert %s', ckan_id)
+                continue
+            except (IntegrityError):
+                log.exception('Duplicate GUID, failed to insert %s', ckan_id)
                 continue
 
         log.info('Reconciling updated records count=%s', len(changed))
