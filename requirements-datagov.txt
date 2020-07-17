@@ -1,21 +1,22 @@
 -i https://pypi.org/simple
 -e .
-certifi==2019.6.16
+certifi==2020.6.20
 chardet==3.0.4
 geolinks==0.2.0
-gunicorn==19.9.0
-idna==2.8
-jinja2==2.10.1
-lxml==4.4.1
-markupsafe==1.1.1
+gunicorn~=19.10.0
+idna==2.10; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
+jinja2==2.11.2
+lxml==4.5.2
+markupsafe==1.1.1; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
 owslib==0.18.0
-psycopg2==2.8.3
-pyproj==2.2.1
-python-dateutil==2.8.0
-pytz==2019.2
-requests==2.22.0
-shapely==1.6.4.post2
-six==1.12.0
-sqlalchemy==1.3.6
-urllib3==1.25.3
+psycopg2==2.8.5
+pyproj==2.2.2
+python-dateutil==2.8.1; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3'
+pytz==2020.1
+pyyaml==5.3.1
+requests==2.24.0
+shapely==1.7.0
+six==1.15.0
+sqlalchemy==1.3.18
+urllib3==1.25.8; python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4' and python_version < '4'
 xmltodict==0.12.0
