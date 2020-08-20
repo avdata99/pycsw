@@ -1,0 +1,11 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.13.5
+# ignores vulnerabilities until expiry date; change duration by modifying expiry date
+ignore:
+  SNYK-PYTHON-PYYAML-590151:
+    - '*':
+        reason: >-
+          No remediation available yet; Changed to Medium severity. Not affecting us
+          since no untrusted yaml input is processed.
+        expires: 2020-09-20T06:00:00.000Z
+patch: {}
