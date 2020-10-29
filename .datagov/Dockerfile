@@ -18,10 +18,11 @@ RUN apt-get update && apt-get install -y \
 RUN useradd --uid $UID --create-home pycsw
 
 WORKDIR $APP_DIR
+
+USER root
+COPY . $APP_DIR
+RUN chown -R pycsw:pycsw $APP_DIR
+
 USER pycsw
-
-COPY --chown=pycsw:pycsw . $APP_DIR
-
 RUN pip3 install --user pipenv
-
 RUN /home/pycsw/.local/bin/pipenv sync
