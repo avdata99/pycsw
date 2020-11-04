@@ -376,7 +376,7 @@ elif COMMAND == 'load':
 
         listing = response.json()
         if not isinstance(listing, dict):
-            raise RuntimeError, 'Wrong API response: %s' % listing
+            raise RuntimeError('Wrong API response: %s' % listing)
         results = listing.get('results')
         if not results:
             # We're done!
